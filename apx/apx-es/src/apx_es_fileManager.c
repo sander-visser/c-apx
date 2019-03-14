@@ -400,6 +400,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
          break;
       case RMF_MSG_FILE_SEND: //sends file to remote side
          {
+            bool sendFileLater = false;
             apx_file_t *file = (apx_file_t*) msg->msgData3;
 
             if (sendAvail >= (int32_t) RMF_MIN_MSG_LEN)
@@ -409,16 +410,17 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                bool more_bit=false;
                uint8_t* msgBuf;
                uint32_t headerLen = (file->fileInfo.address < RMF_DATA_LOW_MAX_ADDR)? RMF_LOW_ADDRESS_SIZE : RMF_HIGH_ADDRESS_SIZE;
-               if (sendAvail < file->fileInfo.length)
+               msgLen = file->fileInfo.length + headerLen;
+               if (msgLen > sendAvail)
                {
-                  dataLen=sendAvail-headerLen;
-                  more_bit=true;
+                  dataLen = sendAvail-headerLen;
+                  msgLen = sendAvail;
+                  more_bit = true;
                }
                else
                {
                   dataLen = file->fileInfo.length;
                }
-               msgLen = headerLen+dataLen;
                msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
                if (msgBuf != 0)
                {
@@ -445,12 +447,18 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                }
                else
                {
-                  retval = -1;
+                  // This should not happen
+                  // If buffer for some reason is smaller than sendAvail, delay
+                  sendFileLater = true;
                }
             }
             else
             {
-               //send file later
+               sendFileLater = true;
+            }
+
+            if (sendFileLater)
+            {
                self->pendingWrite = true;
                self->fileWriteInfo.localFile=file;
                self->fileWriteInfo.readOffset=0;
@@ -645,7 +653,7 @@ static void apx_es_fileManager_processRemoteFileInfo(apx_es_fileManager_t *self,
                else
                {
 #if APX_DEBUG_ENABLE
-                  fprintf(stderr, "[APX_ES_FILEMANAGER] unexpected file size off file %s. Expected %d, got %d\n",file->fileInfo.name,
+                  fprintf(stderr, "[APX_ES_FILEMANAGER] unexpected file size of file %s. Expected %d, got %d\n",file->fileInfo.name,
                         file->fileInfo.length, fileInfo->length);
 #endif
                }
@@ -717,16 +725,17 @@ static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self)
          bool more_bit=false;
          uint8_t* msgBuf;
          uint32_t headerLen = (self->fileWriteInfo.writeAddress < RMF_DATA_LOW_MAX_ADDR)? RMF_LOW_ADDRESS_SIZE : RMF_HIGH_ADDRESS_SIZE;
-         if (sendAvail < self->fileWriteInfo.remain)
+         msgLen = headerLen + self->fileWriteInfo.remain;
+         if (msgLen > sendAvail)
          {
-            dataLen=sendAvail-headerLen;
-            more_bit=true;
+            dataLen = sendAvail-headerLen;
+            msgLen = sendAvail;
+            more_bit = true;
          }
          else
          {
             dataLen = self->fileWriteInfo.remain;
          }
-         msgLen = headerLen+dataLen;
          msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
          if (msgBuf != 0)
          {
@@ -789,9 +798,33 @@ DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *sel
  */
 static int32_t apx_es_processPendingCmd(apx_es_fileManager_t *self)
 {
-   (void) self;
+   int32_t retval=-1;
 #if APX_DEBUG_ENABLE
    printf("apx_es_processPendingCmd\n");
 #endif
-   return -1; //not implemented
+   if (self != 0)
+   {
+      uint32_t sendAvail = 0;
+      uint32_t msgLen = self->cmdInfo.length;
+      assert(msgLen != 0);
+      assert(self->pendingCmd);
+      if ( (self->transmitHandler.getSendAvail != 0) && (self->transmitHandler.getSendBuffer != 0) )
+      {
+         sendAvail = (uint32_t )self->transmitHandler.getSendAvail(self->transmitHandler.arg);
+      }
+      if (msgLen <= sendAvail)
+      {
+         uint8_t* msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
+         if (msgBuf != 0)
+         {
+            retval = 0;
+            self->cmdInfo.length = 0;
+            self->pendingCmd = false;
+            memcpy(msgBuf, self->cmdInfo.buf, msgLen);
+            self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+         }
+      }
+   }
+
+   return retval;
 }
