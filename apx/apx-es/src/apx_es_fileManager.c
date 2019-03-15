@@ -4,6 +4,9 @@
 #ifndef APX_DEBUG_ENABLE
 #define APX_DEBUG_ENABLE 0
 #endif
+#ifndef APX_MSQ_QUEUE_WARN_THRESHOLD
+#define APX_MSQ_QUEUE_WARN_THRESHOLD 2
+#endif
 #include <string.h>
 #include <assert.h>
 #if APX_DEBUG_ENABLE || defined(UNIT_TEST)
@@ -131,6 +134,12 @@ void apx_es_fileManager_onConnected(apx_es_fileManager_t *self)
          {
             apx_msg_t msg = {RMF_MSG_FILEINFO,0,0,0};
             msg.msgData3 = file;
+#if APX_DEBUG_ENABLE
+            if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+            {
+               fprintf(stderr, "messageQueue fill warning for RMF_MSG_FILEINFO. Free before add: %d\n", rbfs_free(&self->messageQueue));
+            }
+#endif
             rbfs_insert(&self->messageQueue,(uint8_t*) &msg);
          }
       }
@@ -192,6 +201,12 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
       msg.msgData1=offset;
       msg.msgData2=length;
       msg.msgData3=(void*)file;
+#if APX_DEBUG_ENABLE
+      if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+      {
+         fprintf(stderr, "messageQueue fill warning for RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
+      }
+#endif
       rbfs_insert(&self->messageQueue,(const uint8_t*) &msg);
    }
 }
@@ -681,6 +696,12 @@ static void apx_es_fileManager_processRemoteFileInfo(apx_es_fileManager_t *self,
          apx_es_fileMap_insert(&self->remoteFileMap, file);
          apx_file_open(file);
          msg.msgData1 = file->fileInfo.address;
+#if APX_DEBUG_ENABLE
+         if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+         {
+            fprintf(stderr, "messageQueue fill warning for RMF_MSG_FILE_OPEN. Free before add: %d\n", rbfs_free(&self->messageQueue));
+         }
+#endif
          rbfs_insert(&self->messageQueue, (const uint8_t*) &msg);
       }
    }
@@ -698,8 +719,14 @@ static void apx_es_fileManager_processOpenFile(apx_es_fileManager_t *self, const
          int32_t bytesToSend = localFile->fileInfo.length;
          printf("Opened %s, bytes to send: %d\n", localFile->fileInfo.name, bytesToSend);
 #endif
-         apx_file_open(localFile);         
+         apx_file_open(localFile);
          msg.msgData3 = localFile;
+#if APX_DEBUG_ENABLE
+         if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+         {
+            fprintf(stderr, "messageQueue fill warning for RMF_MSG_FILE_SEND. Free before add: %d\n", rbfs_free(&self->messageQueue));
+         }
+#endif
          rbfs_insert(&self->messageQueue,(uint8_t*) &msg);
       }
    }
