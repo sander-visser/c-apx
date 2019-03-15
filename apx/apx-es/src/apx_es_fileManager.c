@@ -378,7 +378,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             sendBuffer = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
             if (sendBuffer != 0)
             {
-               int32_t result = rmf_packHeader(&sendBuffer[0], msgLen, address, false);
+               int32_t result = rmf_packHeader(&sendBuffer[0], headerLen, address, false);
                if (result > 0)
                {
                   apx_file_read(file,&sendBuffer[headerLen],offset,dataLen);
