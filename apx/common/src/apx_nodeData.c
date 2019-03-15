@@ -234,11 +234,15 @@ int8_t apx_nodeData_readDefinitionData(apx_nodeData_t *self, uint8_t *dest, uint
 
 int8_t apx_nodeData_readOutPortData(apx_nodeData_t *self, uint8_t *dest, uint32_t offset, uint32_t len)
 {
+   assert((offset+len) <= outPortDataLen);
 #ifndef APX_EMBEDDED
    SPINLOCK_ENTER(self->outPortDataLock);
 #endif
    memcpy(dest, &self->outPortDataBuf[offset], len);
-   self->outPortDirtyFlags[offset]=0;
+   if (self->outPortDirtyFlags != 0)
+   {
+      memset(&self->outPortDirtyFlags[offset], 0, len);
+   }
 #ifndef APX_EMBEDDED
    SPINLOCK_LEAVE(self->outPortDataLock);
 #endif
@@ -247,13 +251,17 @@ int8_t apx_nodeData_readOutPortData(apx_nodeData_t *self, uint8_t *dest, uint32_
 
 int8_t apx_nodeData_readInPortData(apx_nodeData_t *self, uint8_t *dest, uint32_t offset, uint32_t len)
 {
-   if( (self != 0) && (self->inPortDataBuf != 0) && (self->inPortDirtyFlags != 0) )
+   if( (self != 0) && (self->inPortDataBuf != 0) )
    {
+      assert((offset+len) <= inPortDataLen);
 #ifndef APX_EMBEDDED
       SPINLOCK_ENTER(self->inPortDataLock);
 #endif
       memcpy(dest, &self->inPortDataBuf[offset], len);
-      self->inPortDirtyFlags[offset]=0;
+      if (self->inPortDirtyFlags != 0)
+      {
+         memset(&self->inPortDirtyFlags[offset], 0, len);
+      }
 #ifndef APX_EMBEDDED
       SPINLOCK_LEAVE(self->inPortDataLock);
 #endif

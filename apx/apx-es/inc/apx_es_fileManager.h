@@ -65,7 +65,9 @@ typedef struct apx_es_fileManager_tag
    bool pendingWrite;
    bool pendingCmd;
    bool dropMessage;
+   bool hasQueuedWriteNotify;
 
+   apx_msg_t queuedWriteNotify; // Last write notification waiting for more data (until apx_es_fileManager_run() is called)
    apx_es_command_t cmdInfo;
    apx_es_file_write_t fileWriteInfo;
 

@@ -60,6 +60,7 @@ int8_t apx_es_fileManager_create(apx_es_fileManager_t *self, uint8_t *messageQue
       self->pendingWrite = false;
       self->pendingCmd = false;
       self->dropMessage = false;
+      self->hasQueuedWriteNotify = false;
       self->curFile=0;
       memset(&self->fileWriteInfo, 0, sizeof(apx_es_file_write_t));
       memset(&self->cmdInfo, 0, sizeof(apx_es_command_t));
@@ -201,13 +202,31 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
       msg.msgData1=offset;
       msg.msgData2=length;
       msg.msgData3=(void*)file;
-#if APX_DEBUG_ENABLE
-      if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+      if (self->hasQueuedWriteNotify)
       {
-         fprintf(stderr, "messageQueue fill warning for RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
-      }
+         // Check if sequential write to the last file. If so append to the queued write notification
+         if ( (msg.msgData3 == self->queuedWriteNotify.msgData3) &&
+              ( (self->queuedWriteNotify.msgData1 + self->queuedWriteNotify.msgData2) == offset) )
+         {
+            self->queuedWriteNotify.msgData2 += length;
+         }
+         else
+         {
+#if APX_DEBUG_ENABLE
+            if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+            {
+               fprintf(stderr, "messageQueue fill warning for RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
+            }
 #endif
-      rbfs_insert(&self->messageQueue,(const uint8_t*) &msg);
+            rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+            self->queuedWriteNotify = msg;
+         }
+      }
+      else
+      {
+         self->hasQueuedWriteNotify = true;
+         self->queuedWriteNotify = msg;
+      }
    }
 }
 
@@ -239,6 +258,17 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
    }
    if ( (self->pendingWrite == false) && (self->pendingCmd == false) )
    {
+      if (self->hasQueuedWriteNotify)
+      {
+#if APX_DEBUG_ENABLE
+         if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+         {
+            fprintf(stderr, "messageQueue fill warning for delayed RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
+         }
+#endif
+         self->hasQueuedWriteNotify = false;
+         rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+      }
       while(true)
       {
          result = apx_es_fileManager_runEventLoop(self);
