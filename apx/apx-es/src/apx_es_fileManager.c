@@ -577,6 +577,8 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
             else
             {
                //drop message
+               self->receiveStartAddress = address;
+               self->dropMessage = true; //message too long
 #if APX_DEBUG_ENABLE
                fprintf(stderr, "[APX_ES_FILEMANAGER] message too long (%d bytes), message dropped\n",dataLen);
 #endif
