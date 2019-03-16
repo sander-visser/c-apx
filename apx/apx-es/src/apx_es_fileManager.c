@@ -376,8 +376,10 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
    {
       int32_t retval=0;
       uint32_t sendAvail = 0;
-      if ( (self->transmitHandler.getSendAvail != 0) && (self->transmitHandler.getSendBuffer != 0) )
+      if (self->transmitHandler.getSendAvail != 0)
       {
+         assert(self->transmitHandler.send != 0);
+         assert(self->transmitHandler.getSendBuffer != 0);
          sendAvail = (uint32_t )self->transmitHandler.getSendAvail(self->transmitHandler.arg);
       }
       switch(msg->msgType)
@@ -473,7 +475,6 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
          }
          break;
       case RMF_MSG_WRITE_NOTIFY:
-         if ( (self->transmitHandler.getSendBuffer != 0) && (self->transmitHandler.send != 0) )
          {
             uint32_t address;
             uint32_t msgLen;
