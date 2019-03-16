@@ -35,8 +35,7 @@
 
 /****************** Public Function Definitions *******************/
 #if(RBFS_ENABLE)
-//returns 0 on success
-uint8_t rbfs_create(rbfs_t* u8Rbf, uint8_t* u8Buffer, uint16_t u16NumElem, uint8_t u8ElemSize)
+void rbfs_create(rbfs_t* u8Rbf, uint8_t* u8Buffer, uint16_t u16NumElem, uint8_t u8ElemSize)
 {
    u8Rbf->u8Buffer = u8Buffer;
    u8Rbf->u8ReadPtr = u8Buffer;
@@ -44,11 +43,9 @@ uint8_t rbfs_create(rbfs_t* u8Rbf, uint8_t* u8Buffer, uint16_t u16NumElem, uint8
    u8Rbf->u8ElemSize = u8ElemSize;
    u8Rbf->u16MaxNumElem = u16NumElem;
    u8Rbf->u16NumElem = 0;
-   return E_BUF_OK;
 }
 
 
-//returns 0 on success, 1 on overflow, 2 on underflow
 uint8_t rbfs_insert(rbfs_t* u8Rbf, const uint8_t* u8Data)
 {
    uint8_t u8i;
@@ -77,7 +74,6 @@ uint8_t rbfs_insert(rbfs_t* u8Rbf, const uint8_t* u8Data)
 }
 
 
-//returns 0 on success, 1 on overflow, 2 on underflow
 uint8_t rbfs_remove(rbfs_t* u8Rbf, uint8_t* u8Data)
 {
    uint8_t u8i;
@@ -105,17 +101,42 @@ uint8_t rbfs_remove(rbfs_t* u8Rbf, uint8_t* u8Data)
 }
 
 
-uint16_t rbfs_size(rbfs_t* u8Rbf)
+uint8_t rbfs_exists(const rbfs_t* u8Rbf, const uint8_t* u8Data)
+{
+   uint8_t found = E_BUF_UNDERFLOW;
+   uint8_t u8i;
+   uint16_t u16j;
+   uint8_t* u8ReadPtr = rbf->u8ReadPtr;
+
+   for (u16j = 0; u16j < u8Rbf->u16NumElem; ++u16j)
+   {
+      found = E_BUF_OK;
+      for (u8i = 0; u8i < u8Rbf->u8ElemSize; ++u8i)
+      {
+         if (*(u8Data++) != *(u8ReadPtr++))
+         {
+            found = E_BUF_UNDERFLOW;
+         }
+      }
+      if (found == E_BUF_OK)
+      {
+         break;
+      }
+   }
+   return found;
+}
+
+uint16_t rbfs_size(const rbfs_t* u8Rbf)
 {
    return u8Rbf->u16NumElem;
 }
 
-uint16_t rbfs_free(rbfs_t* rbf)
+uint16_t rbfs_free(const rbfs_t* rbf)
 {
    return (uint16_t) (rbf->u16MaxNumElem-rbf->u16NumElem);
 }
 
-uint8_t rbfs_peek(rbfs_t* rbf, uint8_t* u8Data)
+uint8_t rbfs_peek(const rbfs_t* rbf, uint8_t* u8Data)
 {
    uint8_t u8i;
    uint8_t* u8ReadPtr = rbf->u8ReadPtr;

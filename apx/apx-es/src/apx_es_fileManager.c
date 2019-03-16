@@ -37,6 +37,8 @@ static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
                                             apx_file_t* file,
                                             uint32_t offset, uint32_t dataLen,
                                             uint32_t msgLen, bool more_bit);
+static void apx_es_queueWriteNotifyUnlessQueued(rbfs_t* rbf, const uint8_t* u8Data);
+static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
 #ifndef UNIT_TEST
 DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *self, int32_t removeIndex);
 #endif
@@ -217,17 +219,39 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
          {
             self->queuedWriteNotify.msgData2 = potentialSequentialWriteSize;
          }
+#if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
+         else if ( (self->queuedWriteNotify.msgData1 > offset) ||
+                   ( (self->queuedWriteNotify.msgData1 + self->queuedWriteNotify.msgData2) <
+                     (offset + length) ) )
+         {
+            // Not writing inside the queuedWriteNotify
+#else
          else
          {
+#fi
 #if APX_DEBUG_ENABLE
             if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
             {
                fprintf(stderr, "messageQueue fill warning for RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
             }
 #endif
+#if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
+            apx_es_queueWriteNotifyUnlessQueued(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+#else
             rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+#fi
             self->queuedWriteNotify = msg;
          }
+#if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
+         else
+         {
+            // File written to same location multiple times before run()
+            // This can happen for instance if run() is starved by sending
+            // some other large file via pendingWrite
+            // In this case there is no need to queue multiple apx_file reads
+            // since all reads in the queue would read the same data
+         }
+#endif
       }
       else
       {
@@ -267,14 +291,7 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
    {
       if (self->hasQueuedWriteNotify)
       {
-#if APX_DEBUG_ENABLE
-         if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
-         {
-            fprintf(stderr, "messageQueue fill warning for delayed RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
-         }
-#endif
-         self->hasQueuedWriteNotify = false;
-         rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+         apx_es_processQueuedWriteNotify(self);
       }
       while(true)
       {
@@ -300,6 +317,32 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
 //////////////////////////////////////////////////////////////////////////////
 // LOCAL FUNCTIONS
 //////////////////////////////////////////////////////////////////////////////
+static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
+{
+#if APX_DEBUG_ENABLE
+   if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
+   {
+      fprintf(stderr, "messageQueue fill warning for delayed RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
+   }
+#endif
+   self->hasQueuedWriteNotify = false;
+#if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
+   apx_es_queueWriteNotifyUnlessQueued(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+#else
+   rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
+#fi
+}
+
+#if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
+static void apx_es_queueWriteNotifyUnlessQueued(rbfs_t* rbf, const uint8_t* u8Data)
+{
+   if (E_BUF_UNDERFLOW == rbfs_exists(rbf, u8Data))
+   {
+      rbfs_insert(rbf, u8Data);
+   }
+}
+#endif
+
 /**
  * runs internal event loop
  * returns 0 when no more messages can be processed, -1 on error and 1 on success
