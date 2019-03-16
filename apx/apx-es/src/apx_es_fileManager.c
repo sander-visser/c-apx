@@ -646,9 +646,8 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
                //start multi-message recepetion
                self->curFile = remoteFile;
                self->receiveStartAddress = address;
-               self->receiveBufOffset=0;
-               memcpy(&self->receiveBuf[self->receiveBufOffset], dataBuf, dataLen);
-               self->receiveBufOffset+=dataLen;
+               memcpy(&self->receiveBuf[0], dataBuf, dataLen);
+               self->receiveBufOffset = dataLen;
             }
             else
             {
@@ -663,8 +662,14 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
       }
       else
       {
-         //continuation reception
-         offset = address-self->curFile->fileInfo.address;
+         if (self->dropMessage)
+         {
+            offset = self->receiveBufOffset;
+         }
+         else
+         {
+            offset = address-self->curFile->fileInfo.address;
+         }
          if (offset != self->receiveBufOffset)
          {
             self->dropMessage = true; //drop message since offsets don't match
@@ -672,11 +677,11 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
             fprintf(stderr, "[APX_ES_FILEMANAGER] invalid offset (%u), message dropped\n",offset);
 #endif
          }
-         else if(self->receiveBufOffset+dataLen<=self->receiveBufLen)
+         else if((offset+dataLen) <= self->receiveBufLen)
          {
             //copy data
-            memcpy(&self->receiveBuf[self->receiveBufOffset], dataBuf, dataLen);
-            self->receiveBufOffset+=dataLen;
+            memcpy(&self->receiveBuf[offset], dataBuf, dataLen);
+            self->receiveBufOffset = offset + dataLen;
          }
          else
          {
@@ -692,7 +697,7 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
             {
                //send message to upper layer
                uint32_t startOffset=self->receiveStartAddress-self->curFile->fileInfo.address;
-               apx_file_write(self->curFile, &self->receiveBuf[0], startOffset, self->receiveBufOffset);
+               apx_file_write(self->curFile, self->receiveBuf, startOffset, self->receiveBufOffset);
             }
             //reset variables for next reception
             self->dropMessage=false;
