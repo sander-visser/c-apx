@@ -38,7 +38,8 @@ static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
                                             uint32_t offset, uint32_t dataLen,
                                             uint32_t msgLen, bool more_bit);
 static void apx_es_queueWriteNotifyUnlessQueued(rbfs_t* rbf, const uint8_t* u8Data);
-static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
+static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self);
+static void apx_es_resetConnectionState(apx_es_fileManager_t *self);
 #ifndef UNIT_TEST
 DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *self, int32_t removeIndex);
 #endif
@@ -59,19 +60,11 @@ int8_t apx_es_fileManager_create(apx_es_fileManager_t *self, uint8_t *messageQue
 //      rbfd_create(&self->messageData, messageDataBuf, messageDataLen);
       self->receiveBuf=receiveBuf;
       self->receiveBufLen=(uint32_t) receiveBufLen;
-      self->receiveBufOffset=0;
-      self->receiveStartAddress = RMF_INVALID_ADDRESS;
       apx_es_fileMap_create(&self->localFileMap);
       apx_es_fileMap_create(&self->remoteFileMap);
       apx_es_fileManager_setTransmitHandler(self, 0);
-      self->pendingWrite = false;
-      self->pendingCmd = false;
-      self->dropMessage = false;
-      self->hasQueuedWriteNotify = false;
-      self->curFile=0;
-      memset(&self->fileWriteInfo, 0, sizeof(apx_es_file_write_t));
-      memset(&self->cmdInfo, 0, sizeof(apx_es_command_t));
       self->numRequestedFiles = 0;
+      apx_es_resetConnectionState(self);
       return 0;
    }
    return -1;
@@ -159,6 +152,7 @@ void apx_es_fileManager_onDisconnected(apx_es_fileManager_t *self)
    if (self != 0)
    {
       apx_es_fileMap_clear(&self->remoteFileMap);
+      apx_es_resetConnectionState(self);
    }
 }
 
@@ -317,6 +311,20 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
 //////////////////////////////////////////////////////////////////////////////
 // LOCAL FUNCTIONS
 //////////////////////////////////////////////////////////////////////////////
+static void apx_es_resetConnectionState(apx_es_fileManager_t *self)
+{
+   rbfs_clear(&self->messageQueue);
+   self->receiveBufOffset = 0;
+   self->receiveStartAddress = RMF_INVALID_ADDRESS;
+   self->pendingWrite = false;
+   self->pendingCmd = false;
+   self->dropMessage = false;
+   self->hasQueuedWriteNotify = false;
+   self->curFile = 0;
+   memset(&self->fileWriteInfo, 0, sizeof(apx_es_file_write_t));
+   memset(&self->cmdInfo, 0, sizeof(apx_es_command_t));
+}
+
 static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
 {
 #if APX_DEBUG_ENABLE
