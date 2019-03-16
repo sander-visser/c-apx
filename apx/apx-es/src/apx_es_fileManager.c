@@ -205,10 +205,12 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
       if (self->hasQueuedWriteNotify)
       {
          // Check if sequential write to the last file. If so append to the queued write notification
+         uint32_t potentialSequentialWriteSize = self->queuedWriteNotify.msgData2 + length;
          if ( (msg.msgData3 == self->queuedWriteNotify.msgData3) &&
-              ( (self->queuedWriteNotify.msgData1 + self->queuedWriteNotify.msgData2) == offset) )
+              ( (self->queuedWriteNotify.msgData1 + self->queuedWriteNotify.msgData2) == offset) &&
+              ( potentialSequentialWriteSize <= (APX_ES_FILE_WRITE_MSG_FRAGMENTATION_THRESHOLD - RMF_HIGH_ADDRESS_SIZE) )
          {
-            self->queuedWriteNotify.msgData2 += length;
+            self->queuedWriteNotify.msgData2 = potentialSequentialWriteSize;
          }
          else
          {
@@ -350,7 +352,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                   retval = -1;
                }
             }
-            else if (msgLen <= RMF_MAX_CMD_BUF_SIZE)
+            else if (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE)
             {
                self->pendingCmd = true;
                self->cmdInfo.length = msgLen;
@@ -390,7 +392,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                   retval = -1;
                }
             }
-            else if (msgLen <= RMF_MAX_CMD_BUF_SIZE)
+            else if (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE)
             {
                self->pendingCmd = true;
                self->cmdInfo.length = msgLen;
@@ -420,6 +422,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             address = file->fileInfo.address+offset;
             headerLen = (address < RMF_DATA_HIGH_MIN_ADDR)? RMF_LOW_ADDRESS_SIZE : RMF_HIGH_ADDRESS_SIZE;
             msgLen = headerLen+dataLen;
+            //Attempt to deliver the notification as one non-fragmented write
             sendBuffer = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
             if (sendBuffer != 0)
             {
@@ -448,7 +451,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             bool sendFileLater = false;
             apx_file_t *file = (apx_file_t*) msg->msgData3;
 
-            if (sendAvail >= (int32_t) RMF_MIN_MSG_LEN)
+            if (sendAvail >= APX_ES_FILE_WRITE_MSG_FRAGMENTATION_THRESHOLD)
             {
                uint32_t dataLen;
                uint32_t msgLen;
@@ -773,7 +776,7 @@ static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self)
       {
          sendAvail = (uint32_t )self->transmitHandler.getSendAvail(self->transmitHandler.arg);
       }
-      if (sendAvail >= (int32_t) RMF_MIN_MSG_LEN)
+      if (sendAvail >= APX_ES_FILE_WRITE_MSG_FRAGMENTATION_THRESHOLD)
       {
 #if APX_DEBUG_ENABLE
          printf("apx_es_processPendingWrite, remain=%d, offset=%d, address=%08X\n",
@@ -787,6 +790,7 @@ static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self)
          msgLen = headerLen + self->fileWriteInfo.remain;
          if (msgLen > sendAvail)
          {
+            // TODO ask the apx_file for the closest boundary where atomic read is needed
             dataLen = sendAvail-headerLen;
             msgLen = sendAvail;
             more_bit = true;

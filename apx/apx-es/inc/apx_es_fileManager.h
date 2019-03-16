@@ -38,7 +38,7 @@ typedef struct apx_es_file_write_tag
 
 typedef struct apx_es_command_tag
 {
-   uint8_t buf[RMF_MAX_CMD_BUF_SIZE];
+   uint8_t buf[APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE];
    uint32_t length;
 }apx_es_command_t;
 
