@@ -582,7 +582,7 @@ static void apx_es_fileManager_parseCmdMsg(apx_es_fileManager_t *self, const uin
                break;
             default:
 #if APX_DEBUG_ENABLE
-               fprintf(stderr, "not implemented cmdType: %d\n", cmdType);
+               fprintf(stderr, "not implemented cmdType: %u\n", cmdType);
 #endif
                break;
 
@@ -638,7 +638,7 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
          {
             self->dropMessage = true; //drop message since offsets don't match
 #if APX_DEBUG_ENABLE
-            fprintf(stderr, "[APX_ES_FILEMANAGER] invalid offset (%d), message dropped\n",offset);
+            fprintf(stderr, "[APX_ES_FILEMANAGER] invalid offset (%u), message dropped\n",offset);
 #endif
          }
          else if(self->receiveBufOffset+dataLen<=self->receiveBufLen)
