@@ -40,6 +40,7 @@ static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
 static void apx_es_queueWriteNotifyUnlessQueued(rbfs_t* rbf, const uint8_t* u8Data);
 static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self);
 static void apx_es_resetConnectionState(apx_es_fileManager_t *self);
+static void apx_es_transmitMsg(apx_es_fileManager_t *self, uint32_t msgLen);
 #ifndef UNIT_TEST
 DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *self, int32_t removeIndex);
 #endif
@@ -311,6 +312,18 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
 //////////////////////////////////////////////////////////////////////////////
 // LOCAL FUNCTIONS
 //////////////////////////////////////////////////////////////////////////////
+static void apx_es_transmitMsg(apx_es_fileManager_t *self, uint32_t msgLen)
+{
+   int32_t result = self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+#if APX_DEBUG_ENABLE
+   if(result < 0)
+   {
+      fprintf(stderr, "apx_es_transmitMsg failed: %d\n", result);
+   }
+#endif
+   assert(result >= 0);
+}
+
 static void apx_es_resetConnectionState(apx_es_fileManager_t *self)
 {
    rbfs_clear(&self->messageQueue);
@@ -427,7 +440,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             }
             if (retval == msgLen)
             {
-               self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+               apx_es_transmitMsg(self, msgLen);
             }
          }
          break;
@@ -470,7 +483,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             }
             if (retval == msgLen)
             {
-               self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+               apx_es_transmitMsg(self, msgLen);
             }
          }
          break;
@@ -498,10 +511,9 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                if (result > 0)
                {
                   apx_file_read(file,&sendBuffer[headerLen],offset,dataLen);
-                  self->transmitHandler.send(self->transmitHandler.arg,0,msgLen);
+                  apx_es_transmitMsg(self, msgLen);
                }
                assert((uint32_t) result == headerLen);
-
             }
             else
             {
@@ -589,7 +601,7 @@ static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
    }
    if (retval == 0)
    {
-      self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+      apx_es_transmitMsg(self, msgLen);
       retval = msgLen;
       if (dataLen < file->fileInfo.length)
       {
@@ -892,7 +904,7 @@ static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self)
             result = apx_file_read(self->fileWriteInfo.localFile, &msgBuf[headerLen], self->fileWriteInfo.readOffset, dataLen);
             if (result == 0)
             {
-               self->transmitHandler.send(self->transmitHandler.arg,0,msgLen);
+               apx_es_transmitMsg(self, msgLen);
                retval = msgLen;
                self->fileWriteInfo.remain-=dataLen;
                if (self->fileWriteInfo.remain==0)
@@ -969,7 +981,7 @@ static int32_t apx_es_processPendingCmd(apx_es_fileManager_t *self)
             self->cmdInfo.length = 0;
             self->pendingCmd = false;
             memcpy(msgBuf, self->cmdInfo.buf, msgLen);
-            self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+            apx_es_transmitMsg(self, msgLen);
          }
       }
    }
