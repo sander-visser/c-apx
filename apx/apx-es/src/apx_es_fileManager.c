@@ -32,6 +32,11 @@ static void apx_es_fileManager_processRemoteFileInfo(apx_es_fileManager_t *self,
 static void apx_es_fileManager_processOpenFile(apx_es_fileManager_t *self, const rmf_cmdOpenFile_t *cmdOpenFile);
 static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self);
 static int32_t apx_es_processPendingCmd(apx_es_fileManager_t *self);
+static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
+                                            apx_es_fileManager_t* self,
+                                            apx_file_t* file,
+                                            uint32_t offset, uint32_t dataLen,
+                                            uint32_t msgLen, bool more_bit);
 #ifndef UNIT_TEST
 DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *self, int32_t removeIndex);
 #endif
@@ -333,75 +338,86 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             uint32_t headerLen = RMF_HIGH_ADDRESS_SIZE;
             uint32_t dataLen;
             uint32_t msgLen;
+            uint8_t* msgBuf = 0;
             apx_file_t *file = (apx_file_t*) msg->msgData3;
             int32_t nameLen=strlen(file->fileInfo.name);
             dataLen=CMD_FILE_INFO_BASE_SIZE+nameLen+1; //+1 for null terminator
             msgLen=headerLen+dataLen;
             if (msgLen<=sendAvail)
             {
-               uint8_t* msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
+               msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
                if (msgBuf != 0)
                {
-                  (void) rmf_serialize_cmdFileInfo(&msgBuf[headerLen],dataLen,&file->fileInfo);
-                  (void) rmf_packHeaderBeforeData(&msgBuf[headerLen],headerLen,RMF_CMD_START_ADDR,false);
-                  self->transmitHandler.send(self->transmitHandler.arg,0,msgLen);
                   retval = msgLen;
                }
-               else
+            }
+            if ((msgBuf == 0) && (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE))
+            {
+               self->pendingCmd = true;
+               self->cmdInfo.length = msgLen;
+               msgBuf = self->cmdInfo.buf;
+            }
+            if (msgBuf != 0)
+            {
+               if (dataLen != rmf_serialize_cmdFileInfo(&msgBuf[headerLen], dataLen, &file->fileInfo))
+               {
+                  retval = -1;
+               }
+               if (headerLen != rmf_packHeaderBeforeData(&msgBuf[headerLen], headerLen, RMF_CMD_START_ADDR, false))
                {
                   retval = -1;
                }
             }
-            else if (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE)
-            {
-               self->pendingCmd = true;
-               self->cmdInfo.length = msgLen;
-               (void) rmf_serialize_cmdFileInfo(&self->cmdInfo.buf[headerLen],dataLen,&file->fileInfo);
-               (void) rmf_packHeaderBeforeData(&self->cmdInfo.buf[headerLen],headerLen,RMF_CMD_START_ADDR,false);
-            }
             else
             {
-               //MISRA
+                retval = -1;
+            }
+            if (retval == msgLen)
+            {
+               self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
             }
          }
          break;
       case RMF_MSG_FILE_OPEN: //sends file open command
          {
             uint32_t headerLen = RMF_HIGH_ADDRESS_SIZE;
-            uint32_t dataLen;
-            uint32_t msgLen;
+            uint32_t dataLen = (uint32_t) RMF_FILE_OPEN_CMD_LEN;
+            uint32_t msgLen = RMF_HIGH_ADDRESS_SIZE + (uint32_t) RMF_FILE_OPEN_CMD_LEN;
             rmf_cmdOpenFile_t cmdOpenFile;
+            uint8_t* msgBuf = 0;
             cmdOpenFile.address = msg->msgData1;
-            dataLen=(uint32_t) RMF_FILE_OPEN_CMD_LEN;
-            msgLen=headerLen+dataLen;
             if (msgLen<=sendAvail)
             {
-               uint8_t* msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
+               msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
                if (msgBuf != 0)
                {
-                  int32_t result;
-                  result=rmf_serialize_cmdOpenFile(&msgBuf[headerLen], dataLen, &cmdOpenFile);
-                  assert(result == (int32_t) dataLen);
-                  result=rmf_packHeaderBeforeData(&msgBuf[headerLen],headerLen,RMF_CMD_START_ADDR,false);
-                  assert(result == (int32_t) headerLen);
-                  self->transmitHandler.send(self->transmitHandler.arg,0,msgLen);
                   retval = msgLen;
                }
-               else
+            }
+            if ((msgBuf == 0) && (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE))
+            {
+               self->pendingCmd = true;
+               self->cmdInfo.length = msgLen;
+               msgBuf = self->cmdInfo.buf;
+            }
+            if (msgBuf != 0)
+            {
+               if (dataLen != rmf_serialize_cmdOpenFile(&msgBuf[headerLen], dataLen, &cmdOpenFile))
+               {
+                  retval = -1;
+               }
+               if (headerLen != rmf_packHeaderBeforeData(&msgBuf[headerLen], headerLen, RMF_CMD_START_ADDR, false))
                {
                   retval = -1;
                }
             }
-            else if (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE)
-            {
-               self->pendingCmd = true;
-               self->cmdInfo.length = msgLen;
-               (void) rmf_serialize_cmdOpenFile(&self->cmdInfo.buf[headerLen], dataLen, &cmdOpenFile);
-               (void) rmf_packHeaderBeforeData(&self->cmdInfo.buf[headerLen],headerLen,RMF_CMD_START_ADDR,false);
-            }
             else
             {
-               //MISRA
+                retval = -1;
+            }
+            if (retval == msgLen)
+            {
+               self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
             }
          }
          break;
@@ -472,26 +488,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
                if (msgBuf != 0)
                {
-                  int8_t result;
-                  (void) rmf_packHeaderBeforeData(&msgBuf[headerLen], headerLen, file->fileInfo.address, more_bit);
-                  result = apx_file_read(file, &msgBuf[headerLen], 0, dataLen);
-                  if (result == 0)
-                  {
-                     self->transmitHandler.send(self->transmitHandler.arg,0,msgLen);
-                     retval = msgLen;
-                     if (dataLen < file->fileInfo.length)
-                     {
-                        self->pendingWrite = true;
-                        self->fileWriteInfo.localFile=file;
-                        self->fileWriteInfo.readOffset=dataLen;
-                        self->fileWriteInfo.writeAddress=file->fileInfo.address+dataLen;
-                        self->fileWriteInfo.remain=file->fileInfo.length - dataLen;
-                     }
-                  }
-                  else
-                  {
-                     retval = -1;
-                  }
+                  retval = apx_es_genFileSendMsg(msgBuf, headerLen, self, file, 0, dataLen, msgLen, more_bit);
                }
                else
                {
@@ -525,6 +522,37 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
       return retval;
    }
    return -1; //invalid arguments
+}
+
+static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
+                                            apx_es_fileManager_t* self,
+                                            apx_file_t* file,
+                                            uint32_t offset, uint32_t dataLen,
+                                            uint32_t msgLen, bool more_bit)
+{
+   int32_t retval = apx_file_read(file, &msgBuf[headerLen], offset, dataLen);
+   if (headerLen != rmf_packHeaderBeforeData(&msgBuf[headerLen], headerLen, file->fileInfo.address, more_bit))
+   {
+      retval = -1;
+   }
+   if (retval == 0)
+   {
+      self->transmitHandler.send(self->transmitHandler.arg, 0, msgLen);
+      retval = msgLen;
+      if (dataLen < file->fileInfo.length)
+      {
+         self->pendingWrite = true;
+         self->fileWriteInfo.localFile = file;
+         self->fileWriteInfo.readOffset = dataLen;
+         self->fileWriteInfo.writeAddress = file->fileInfo.address + dataLen;
+         self->fileWriteInfo.remain = file->fileInfo.length - dataLen;
+      }
+   }
+   else
+   {
+      retval = -1;
+   }
+   return retval;
 }
 
 static void apx_es_fileManager_parseCmdMsg(apx_es_fileManager_t *self, const uint8_t *msgBuf, int32_t msgLen)
