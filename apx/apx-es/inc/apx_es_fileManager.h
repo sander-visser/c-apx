@@ -36,12 +36,6 @@ typedef struct apx_es_file_write_tag
    uint32_t remain;
 } apx_es_file_write_t;
 
-typedef struct apx_es_command_tag
-{
-   uint8_t buf[APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE];
-   uint32_t length;
-}apx_es_command_t;
-
 typedef struct apx_es_fileManager_tag
 {
     //data object, all read/write accesses to these must be protected by the lock variable above
@@ -63,12 +57,10 @@ typedef struct apx_es_fileManager_tag
    apx_file_t *curFile; //weak pointer to last accessed file
 
    bool pendingWrite;
-   bool pendingCmd;
    bool dropMessage;
-   bool hasQueuedWriteNotify;
 
    apx_msg_t queuedWriteNotify; // Last write notification waiting for more data (until apx_es_fileManager_run() is called)
-   apx_es_command_t cmdInfo;
+   apx_msg_t pendingMsg;
    apx_es_file_write_t fileWriteInfo;
 
    struct apx_es_nodeManager_tag *nodeManager; //weak pointer to attached nodeManager
@@ -89,6 +81,7 @@ int8_t apx_es_fileManager_create(apx_es_fileManager_t *self, uint8_t *messageQue
 void apx_es_fileManager_attachLocalFile(apx_es_fileManager_t *self, apx_file_t *localFile);
 void apx_es_fileManager_requestRemoteFile(apx_es_fileManager_t *self, apx_file_t *requestedFile);
 
+// Ensure it normally can provide a APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE / APX_ES_FILE_WRITE_MSG_FRAGMENTATION_THRESHOLD sized send buffer
 void apx_es_fileManager_setTransmitHandler(apx_es_fileManager_t *self, apx_transmitHandler_t *handler);
 
 //these messages can be sent to the fileManager to be processed by its internal worker thread

@@ -31,7 +31,6 @@ static void apx_es_fileManager_parseDataMsg(apx_es_fileManager_t *self, uint32_t
 static void apx_es_fileManager_processRemoteFileInfo(apx_es_fileManager_t *self, const rmf_fileInfo_t *fileInfo);
 static void apx_es_fileManager_processOpenFile(apx_es_fileManager_t *self, const rmf_cmdOpenFile_t *cmdOpenFile);
 static int32_t apx_es_processPendingWrite(apx_es_fileManager_t *self);
-static int32_t apx_es_processPendingCmd(apx_es_fileManager_t *self);
 static inline int32_t apx_es_genFileSendMsg(uint8_t* msgBuf, uint32_t headerLen,
                                             apx_es_fileManager_t* self,
                                             apx_file_t* file,
@@ -55,20 +54,20 @@ DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *sel
 //////////////////////////////////////////////////////////////////////////////
 int8_t apx_es_fileManager_create(apx_es_fileManager_t *self, uint8_t *messageQueueBuf, uint16_t messageQueueLen, uint8_t *receiveBuf, uint16_t receiveBufLen)
 {
+   int8_t retval = -1;
    if ( (self != 0) && (messageQueueBuf != 0) && (receiveBuf != 0))
    {
       rbfs_create(&self->messageQueue, messageQueueBuf, messageQueueLen, (uint8_t) sizeof(apx_msg_t));
-//      rbfd_create(&self->messageData, messageDataBuf, messageDataLen);
-      self->receiveBuf=receiveBuf;
-      self->receiveBufLen=(uint32_t) receiveBufLen;
+      self->receiveBuf = receiveBuf;
+      self->receiveBufLen = receiveBufLen;
       apx_es_fileMap_create(&self->localFileMap);
       apx_es_fileMap_create(&self->remoteFileMap);
       apx_es_fileManager_setTransmitHandler(self, 0);
       self->numRequestedFiles = 0;
       apx_es_resetConnectionState(self);
-      return 0;
+      retval = 0;
    }
-   return -1;
+   return retval;
 }
 
 void apx_es_fileManager_attachLocalFile(apx_es_fileManager_t *self, apx_file_t *localFile)
@@ -204,7 +203,7 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
       msg.msgData1=offset;
       msg.msgData2=length;
       msg.msgData3=(void*)file;
-      if (self->hasQueuedWriteNotify)
+      if (self->queuedWriteNotify.msgType == RMF_MSG_WRITE_NOTIFY)
       {
          // Check if sequential write to the last file. If so append to the queued write notification
          uint32_t potentialSequentialWriteSize = self->queuedWriteNotify.msgData2 + length;
@@ -250,7 +249,6 @@ void apx_es_fileManager_onFileUpdate(apx_es_fileManager_t *self, apx_file_t *fil
       }
       else
       {
-         self->hasQueuedWriteNotify = true;
          self->queuedWriteNotify = msg;
       }
    }
@@ -272,39 +270,44 @@ void apx_es_fileManager_run(apx_es_fileManager_t *self)
 #endif
       }
    }
-   if (self->pendingCmd == true)
+   if (self->pendingMsg.msgType != RMF_CMD_INVALID_MSG)
    {
-      result = apx_es_processPendingCmd(self);
+      result = apx_es_fileManager_onInternalMessage(self, &self->pendingMsg);
       if (result < 0)
       {
 #if APX_DEBUG_ENABLE
-         fprintf(stderr, "apx_es_processPendingCmd returned %d",result);
+         fprintf(stderr, "pendingMsg processing returned %d",result);
 #endif
+      }
+      else if (result > 0)
+      {
+         self->pendingMsg.msgType = RMF_CMD_INVALID_MSG;
+      }
+      else
+      {
+         // Pending message could still not be processed
       }
    }
-   if ( (self->pendingWrite == false) && (self->pendingCmd == false) )
+   result = -1;
+   while ( (result != 0) &&
+           (self->pendingWrite == false) &&
+           (self->pendingMsg.msgType == RMF_CMD_INVALID_MSG) )
    {
-      if (self->hasQueuedWriteNotify)
+      if (self->queuedWriteNotify.msgType == RMF_MSG_WRITE_NOTIFY)
       {
+         // Add any pending write notificatins to the msg queue
          apx_es_processQueuedWriteNotify(self);
       }
-      while(true)
+      result = apx_es_fileManager_runEventLoop(self);
+      if (result < 0)
       {
-         result = apx_es_fileManager_runEventLoop(self);
-         if (result < 0)
-         {
 #if APX_DEBUG_ENABLE
-            fprintf(stderr, "apx_es_fileManager_runEventLoop returned %d",result);
+         fprintf(stderr, "apx_es_fileManager_runEventLoop returned %d",result);
 #endif
-         }
-         else if ( (result == 0) || (self->pendingWrite == true) || (self->pendingCmd == true) )
-         {
-            break;
-         }
-         else
-         {
-            //MISRA
-         }
+      }
+      else
+      {
+         // 0 = no work performed, >0 Work completed ok
       }
    }
 }
@@ -330,12 +333,11 @@ static void apx_es_resetConnectionState(apx_es_fileManager_t *self)
    self->receiveBufOffset = 0;
    self->receiveStartAddress = RMF_INVALID_ADDRESS;
    self->pendingWrite = false;
-   self->pendingCmd = false;
+   self->queuedWriteNotify.msgType = RMF_CMD_INVALID_MSG;
+   self->pendingMsg.msgType = RMF_CMD_INVALID_MSG;
    self->dropMessage = false;
-   self->hasQueuedWriteNotify = false;
    self->curFile = 0;
    memset(&self->fileWriteInfo, 0, sizeof(apx_es_file_write_t));
-   memset(&self->cmdInfo, 0, sizeof(apx_es_command_t));
 }
 
 static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
@@ -346,12 +348,12 @@ static void apx_es_processQueuedWriteNotify(apx_es_fileManager_t *self)
       fprintf(stderr, "messageQueue fill warning for delayed RMF_MSG_WRITE_NOTIFY. Free before add: %d\n", rbfs_free(&self->messageQueue));
    }
 #endif
-   self->hasQueuedWriteNotify = false;
 #if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
    apx_es_queueWriteNotifyUnlessQueued(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
 #else
    rbfs_insert(&self->messageQueue,(const uint8_t*) &self->queuedWriteNotify);
 #fi
+   self->queuedWriteNotify.msgType = RMF_CMD_INVALID_MSG;
 }
 
 #if APX_ES_FILEMANAGER_OPTIMIZE_WRITE_NOTIFICATIONS == 1
@@ -417,11 +419,9 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                   retval = msgLen;
                }
             }
-            if ((msgBuf == 0) && (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE))
+            if (msgBuf == 0)
             {
-               self->pendingCmd = true;
-               self->cmdInfo.length = msgLen;
-               msgBuf = self->cmdInfo.buf;
+               self->pendingMsg = msg;
             }
             if (msgBuf != 0)
             {
@@ -463,11 +463,9 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                   retval = msgLen;
                }
             }
-            if ((msgBuf == 0) && (msgLen <= APX_ES_FILEMANAGER_MAX_CMD_BUF_SIZE))
+            if (msgBuf == 0)
             {
-               self->pendingCmd = true;
-               self->cmdInfo.length = msgLen;
-               msgBuf = self->cmdInfo.buf;
+               self->pendingMsg = msg;
             }
             if (msgBuf != 0)
             {
@@ -482,7 +480,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             }
             else
             {
-                retval = -1;
+               retval = -1;
             }
             if (retval == msgLen)
             {
@@ -517,6 +515,7 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
                   apx_es_transmitMsg(self, msgLen);
                }
                assert((uint32_t) result == headerLen);
+               retval = msgLen;
             }
             else
             {
@@ -951,40 +950,4 @@ DYN_STATIC int8_t apx_es_fileManager_removeRequestedAt(apx_es_fileManager_t *sel
       return 0;
    }
    return -1;
-}
-
-/**
- * a command is waiting to be transmitted.
- */
-static int32_t apx_es_processPendingCmd(apx_es_fileManager_t *self)
-{
-   int32_t retval=-1;
-#if APX_DEBUG_ENABLE
-   printf("apx_es_processPendingCmd\n");
-#endif
-   if (self != 0)
-   {
-      uint32_t sendAvail = 0;
-      uint32_t msgLen = self->cmdInfo.length;
-      assert(msgLen != 0);
-      assert(self->pendingCmd);
-      if ( (self->transmitHandler.getSendAvail != 0) && (self->transmitHandler.getSendBuffer != 0) )
-      {
-         sendAvail = (uint32_t )self->transmitHandler.getSendAvail(self->transmitHandler.arg);
-      }
-      if (msgLen <= sendAvail)
-      {
-         uint8_t* msgBuf = self->transmitHandler.getSendBuffer(self->transmitHandler.arg, msgLen);
-         if (msgBuf != 0)
-         {
-            retval = 0;
-            self->cmdInfo.length = 0;
-            self->pendingCmd = false;
-            memcpy(msgBuf, self->cmdInfo.buf, msgLen);
-            apx_es_transmitMsg(self, msgLen);
-         }
-      }
-   }
-
-   return retval;
 }
