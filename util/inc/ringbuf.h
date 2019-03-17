@@ -52,6 +52,7 @@ typedef struct rbfs_tag   //ring buffer (fixed block size) -
    uint8_t* u8ReadPtr;
    uint16_t u16MaxNumElem;
    uint16_t u16NumElem;
+   uint16_t u16PeakNumElem;
    uint8_t u8ElemSize;
 } rbfs_t;
 #endif

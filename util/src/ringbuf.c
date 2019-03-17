@@ -43,6 +43,7 @@ void rbfs_create(rbfs_t* u8Rbf, uint8_t* u8Buffer, uint16_t u16NumElem, uint8_t 
    u8Rbf->u8ElemSize = u8ElemSize;
    u8Rbf->u16MaxNumElem = u16NumElem;
    u8Rbf->u16NumElem = 0;
+   u8Rbf->u16PeakNumElem = 0;
 }
 
 
@@ -55,9 +56,16 @@ uint8_t rbfs_insert(rbfs_t* u8Rbf, const uint8_t* u8Data)
    {
       return E_BUF_OVERFLOW;
    }
-   
+
    u8Rbf->u16NumElem++;
-   
+#if APX_DEBUG_ENABLE
+   if (u8Rbf->u16NumElem > u8Rbf->u16PeakNumElem)
+   {
+      // Store to be able to view in debugger
+      u8Rbf->u16PeakNumElem = u8Rbf->u16NumElem;
+   }
+#endif
+
    //copy data from elem to buffer
    for (u8i = 0; u8i < u8Rbf->u8ElemSize; u8i++)
    {
