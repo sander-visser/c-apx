@@ -451,6 +451,9 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
             uint32_t msgLen = RMF_HIGH_ADDRESS_SIZE + (uint32_t) RMF_FILE_OPEN_CMD_LEN;
             rmf_cmdOpenFile_t cmdOpenFile;
             uint8_t* msgBuf = 0;
+            //add file to remoteFileMap
+            apx_es_fileMap_insert(&self->remoteFileMap, (apx_file_t*) msg->msgData3);
+            apx_file_open((apx_file_t*) msg->msgData3);
             cmdOpenFile.address = msg->msgData1;
             if (msgLen<=sendAvail)
             {
@@ -530,7 +533,11 @@ static int32_t apx_es_fileManager_onInternalMessage(apx_es_fileManager_t *self, 
          {
             bool sendFileLater = false;
             apx_file_t *file = (apx_file_t*) msg->msgData3;
-
+#if APX_DEBUG_ENABLE
+            int32_t bytesToSend = file->fileInfo.length;
+            printf("Opened %s, bytes to send: %d\n", file->fileInfo.name, bytesToSend);
+#endif
+            apx_file_open(file);
             if (sendAvail >= APX_ES_FILE_WRITE_MSG_FRAGMENTATION_THRESHOLD)
             {
                uint32_t dataLen;
@@ -822,10 +829,8 @@ static void apx_es_fileManager_processRemoteFileInfo(apx_es_fileManager_t *self,
          file->fileInfo.fileType = fileInfo->fileType;
          file->fileInfo.digestType = fileInfo->digestType;
          memcpy(&file->fileInfo.digestData, fileInfo->digestData, RMF_DIGEST_SIZE);
-         //add file to remoteFileMap
-         apx_es_fileMap_insert(&self->remoteFileMap, file);
-         apx_file_open(file);
          msg.msgData1 = file->fileInfo.address;
+         msg.msgData3 = (void*) file;
 #if APX_DEBUG_ENABLE
          if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
          {
@@ -845,11 +850,6 @@ static void apx_es_fileManager_processOpenFile(apx_es_fileManager_t *self, const
       if (localFile != 0)
       {
          apx_msg_t msg = {RMF_MSG_FILE_SEND,0,0,0};
-#if APX_DEBUG_ENABLE
-         int32_t bytesToSend = localFile->fileInfo.length;
-         printf("Opened %s, bytes to send: %d\n", localFile->fileInfo.name, bytesToSend);
-#endif
-         apx_file_open(localFile);
          msg.msgData3 = localFile;
 #if APX_DEBUG_ENABLE
          if (rbfs_free(&self->messageQueue) <= APX_MSQ_QUEUE_WARN_THRESHOLD)
