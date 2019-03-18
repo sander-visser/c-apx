@@ -21,10 +21,6 @@
 //////////////////////////////////////////////////////////////////////////////
 // CONSTANTS AND DATA TYPES
 //////////////////////////////////////////////////////////////////////////////
-//forward declaration
-struct apx_nodeData_tag;
-struct apx_es_nodeManager_tag;
-
 #define APX_FILEMANAGER_CLIENT_MODE 0
 #define APX_FILEMANAGER_SERVER_MODE 1
 
@@ -38,10 +34,8 @@ typedef struct apx_es_file_write_tag
 
 typedef struct apx_es_fileManager_tag
 {
-    //data object, all read/write accesses to these must be protected by the lock variable above
    rbfs_t messageQueue; //internal message queue (contains apx_msg_t object)
-   uint8_t *messageQueueBuf; //strong reference to byte buffer
-   uint16_t messageQueueLen; //number of items in messageQueue (length of each message is sizeof(apx_msg_t))
+
    uint8_t *receiveBuf; //receive buffer for large writes
    uint32_t receiveBufLen; //length of receive buffer
    uint32_t receiveBufOffset; //current write position (and length) of receive buffer
@@ -53,18 +47,21 @@ typedef struct apx_es_fileManager_tag
    uint16_t numRequestedFiles;
 
    apx_transmitHandler_t transmitHandler;
+   //buffer used to pack multipple messages prior to transmitHandler.send()
+   uint8_t *transmitBuf;
+   uint32_t transmitBufLen; // Max size allowed
+   uint32_t transmitBufUsed;
+   // Taken from transmitHandler user arg as uint32_t at creation
+   uint32_t transmitHandlerOptimalWriteSize;
 
-   apx_file_t *curFile; //weak pointer to last accessed file
-
-   bool pendingWrite;
-   bool dropMessage;
+   bool pendingWrite; // Used then a sent message is fragmented using more_bit
+   bool dropMessage; // Used when received messages are larger than receive buffer
+   bool isConnected; // When fileManager is connected to an underlying communication device (like a TCP socket or SPI stream)
+   apx_file_t *curFile; // Weak pointer to last accessed file
 
    apx_msg_t queuedWriteNotify; // Last write notification waiting for more data (until apx_es_fileManager_run() is called)
    apx_msg_t pendingMsg;
    apx_es_file_write_t fileWriteInfo;
-
-   struct apx_es_nodeManager_tag *nodeManager; //weak pointer to attached nodeManager
-   bool isConnected; //true if this fileManager is connected to an underlying communication device (like a TCP socket or SPI stream)
 }apx_es_fileManager_t;
 
 //////////////////////////////////////////////////////////////////////////////
