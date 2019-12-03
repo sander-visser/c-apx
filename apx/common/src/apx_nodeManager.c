@@ -544,9 +544,13 @@ static void apx_nodeManager_createNode(apx_nodeManager_t *self, const uint8_t *d
                         {
                            APX_LOG_ERROR("[APX_NODE_MANAGER] createOutInitDataFromDefinition failed");
                         }
-                        apx_nodeData_setNodeInfo(nodeData, nodeInfo);
-                        apx_fileManager_sendFileOpen(fileManager, outDataFile->fileInfo.address);
                      }
+                     else
+                     {
+                        APX_LOG_ERROR("[APX_NODE_MANAGER] %s connected since before. Keeping previous provide values until out file is opened", apxNode->name);
+                     }
+                     apx_nodeData_setNodeInfo(outDataFile->nodeData, nodeInfo);
+                     apx_fileManager_sendFileOpen(fileManager, outDataFile->fileInfo.address);
                   }
                }
                else
